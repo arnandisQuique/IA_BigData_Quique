@@ -1,0 +1,111 @@
+services:
+  # --- INGESTA: KAFKA (MODO KRAFT - SIN ZOOKEEPER) ---
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: proyectefinalcrypto-kafka-1
+    ports:
+      - "9092:9092"
+    environment:
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+
+  # --- ALMACENAMIENTO: HDFS ---
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    volumes:
+      - hadoop_namenode:/hadoop/dfs/name
+    environment:
+      - CLUSTER_NAME=test
+    env_file:
+      - ./hadoop.env
+    ports:
+      - "9870:9870"
+      - "9000:9000"
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode
+    depends_on:
+      - namenode
+    volumes:
+      - hadoop_datanode:/hadoop/dfs/data
+    env_file:
+      - ./hadoop.env
+    ports:
+      - "9864:9864"
+
+  # --- PROCESAMIENTO: SPARK ---
+  spark-master:
+    image: apache/spark:3.5.1
+    container_name: proyectefinalcrypto-spark-master-1
+    environment:
+      - SPARK_MODE=master
+    ports:
+      - "8181:8080"
+      - "7077:7077"
+    volumes:
+      - ./spark:/opt/spark-apps # Asegúrate de que tu script esté en la carpeta /spark
+
+  spark-worker:
+    image: apache/spark:3.5.1
+    container_name: proyectefinalcrypto-spark-worker-1
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+    volumes:
+      - ./spark:/opt/spark-apps
+
+  # --- OBSERVABILIDAD ---
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: proyectefinalcrypto-prometheus-1
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: proyectefinalcrypto-grafana-1
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: proyectefinalcrypto-node-exporter-1
+    ports:
+      - "9100:9100"
+
+  cadvisor:
+    image: google/cadvisor:latest
+    container_name: proyectefinalcrypto-cadvisor-1
+    ports:
+      - "8081:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
+  # --- APLICACIÓN ---
+  crypto-producer:
+    build: ./producer
+    container_name: proyectefinalcrypto-crypto-producer-1
+    depends_on:
+      - kafka
+
+volumes:
+  hadoop_namenode:
+  hadoop_datanode:
